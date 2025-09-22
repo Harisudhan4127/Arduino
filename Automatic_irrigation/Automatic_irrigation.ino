@@ -15,13 +15,8 @@ void setup()
   lcd.setCursor(3, 1);
   lcd.print("Harisudhan"); // LCD printed name (hari haran)
   pinMode(A1, INPUT);
-  pinMode(8, OUTPUT); // Output Relay and Pump
-  pinMode(13, OUTPUT);
-  pinMode(12, OUTPUT);
-  pinMode(11, OUTPUT);
-  pinMode(10, OUTPUT);
-  pinMode(9, OUTPUT);
-
+  pinMode(2, OUTPUT); // Output Relay and Pump
+  
 }
 
 void loop()

@@ -26,14 +26,14 @@ void setup() {
   }
 
   display.clearDisplay();
-  showCenteredText("PIC Prototype 2", 1);
+  showCenteredText("Prototype 3", 1);
   delay(2000);
   display.clearDisplay();
 }
 
 void loop() {
   DTH();
-  delay(2000);
+  delay(500);
 }
 
 void showCenteredText(String text, uint8_t textSize, int yOffset) {

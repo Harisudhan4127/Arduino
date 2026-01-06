@@ -40,7 +40,7 @@ void setup() {
 void loop() {
   // ldr_sensor();
   Moisture();
-  DTH();
+//  DTH();
 
 
   while (Serial.available()) {  //Check if there is an available byte to read
@@ -139,37 +139,37 @@ void DTH() {
 
 void Moisture() {
   int level = analogRead(A1);  // Updated to use A0 for clarity
-  Serial.println("Analog value:");
-  Serial.println(level);
+//  Serial.println("Analog value:");
+//  Serial.println(level);
 
   lcd.clear();  // Clear display before printing new moisture level
 
   if (level < 175) {
     lcd.setCursor(0, 0);
-    lcd.print("Moisture: LEVEL 5");
+    lcd.print(" WATER: LEVEL 5");
     Serial.print("Moisture: LEVEL 5");
     digitalWrite(12, HIGH);
   } else if (level < 350) {
     lcd.setCursor(0, 0);
-    lcd.print("Moisture: LEVEL 4");
+    lcd.print(" WATER: LEVEL 4");
     Serial.print("Moisture: LEVEL 4");
     digitalWrite(12, LOW);
   } else if (level < 525) {
     lcd.setCursor(0, 0);
-    lcd.print("Moisture: LEVEL 3");
+    lcd.print(" WATER: LEVEL 3");
     Serial.print("Moisture: LEVEL 3");
     digitalWrite(12, LOW);
   } else if (level < 700) {
     lcd.setCursor(0, 0);
-    lcd.print("Moisture: LEVEL 2");
+    lcd.print(" WATER: LEVEL 2");
     Serial.print("Moisture: LEVEL 2");
     digitalWrite(12, HIGH);
   } else if (level < 876) {
     lcd.setCursor(0, 0);
-    lcd.print("Moisture: LEVEL 1");
+    lcd.print(" WATER: LEVEL 1");
     Serial.print("Moisture: LEVEL 1");
     digitalWrite(12, HIGH);
   }
-
+Serial.print("\n");
   delay(1000);
 }

@@ -22,13 +22,15 @@ void setup() {
 
   if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
     Serial.println(F("SSD1306 allocation failed"));
-    while (1);
+    while (1)
+      ;
   }
 
   display.clearDisplay();
   showCenteredText("Prototype 3", 1);
   delay(2000);
   display.clearDisplay();
+  Serial.print("Portable insulin carrier");
 }
 
 void loop() {
@@ -66,10 +68,11 @@ void DTH() {
   Serial.print("Humidity: ");
   Serial.print(h);
   Serial.println(" %");
+  delay(500);
   Serial.print("Temperature: ");
   Serial.print(t);
   Serial.println(" *C");
-
+  delay(500);
   display.clearDisplay();
   display.setTextSize(1);
   display.setTextColor(WHITE);

@@ -3,7 +3,7 @@ int led = 12;
 int sensitivity = 200;
 
 void setup() {
-  Serial.begin(115200);
+  Serial.begin(9600);
   pinMode(led, OUTPUT);
 }
 

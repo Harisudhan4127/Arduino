@@ -1,25 +1,21 @@
 #include <MAX3010x.h>
 #include <DHT.h>
-#include <Wire.h>
 #include "filters.h"
 
 // -----------------------------
-// DHT11 Setup
+// DHT22 Setup
 // -----------------------------
 #define DHTTYPE DHT11
-#define DHTPIN 35
+#define DHTPIN 27
 DHT dht(DHTPIN, DHTTYPE);
 
-// -----------------------------
-// MQ135 Setup
-// -----------------------------
+
 const int MQ135_SENSOR_PIN = 34;  // ESP32 ADC pin
 int led = 12;
 int buzzer = 13;
+int sensitivity = 200;
 
-// -----------------------------
-// MAX30105 Setup
-// -----------------------------
+// MAX30105 sensor
 MAX30105 sensor;
 const auto kSamplingRate = sensor.SAMPLING_RATE_400SPS;
 const float kSamplingFrequency = 400.0;
@@ -36,7 +32,9 @@ const float kLowPassCutoff = 5.0;
 const float kHighPassCutoff = 0.5;
 
 // Averaging
+const bool kEnableAveraging = false;
 const int kAveragingSamples = 5;
+const int kSampleThreshold = 5;
 
 // Filter Instances
 LowPassFilter low_pass_filter_red(kLowPassCutoff, kSamplingFrequency);
@@ -64,48 +62,22 @@ float last_diff = NAN;
 bool crossed = false;
 long crossed_time = 0;
 
-// -----------------------------
-// Air Quality Label Function
-// -----------------------------
-String air_quality_data(int sensor_value) {
-  if (sensor_value < 50) return "Excellent";
-  else if (sensor_value < 100) return "Good";
-  else if (sensor_value < 150) return "Moderate";
-  else if (sensor_value < 200) return "Poor";
-  else return "Dangerous";
-}
-
-// -----------------------------
-// Setup
-// -----------------------------
 void setup() {
-  Serial.begin(115200);
-  dht.begin();
+  Serial.begin(9600);
   pinMode(led, OUTPUT);
   pinMode(buzzer, OUTPUT);
 
   if (sensor.begin() && sensor.setSamplingRate(kSamplingRate)) {
-    Serial.println("MAX30105 Sensor initialized");
-  } else {
-    Serial.println("MAX30105 Sensor not found!");
+    Serial.println("Sensor initialized");
+  }
+  else {
+    Serial.println("Sensor not found");
     while (1);
   }
+  dht.begin();
 }
 
-// -----------------------------
-// Main Loop
-// -----------------------------
 void loop() {
-  // -----------------------------
-  // Read DHT11
-  // -----------------------------
-  float h = dht.readHumidity();
-  float t = dht.readTemperature();
-  if (isnan(h) || isnan(t)) {
-    Serial.println("Failed to read from DHT sensor!");
-    delay(1000);
-    return;
-  }
 
   // -----------------------------
   // Heartbeat + SpO2 Processing
@@ -148,7 +120,9 @@ void loop() {
         crossed = true;
         crossed_time = millis();
       }
-      if (current_diff > 0) crossed = false;
+      if (current_diff > 0) {
+        crossed = false;
+      }
 
       if (crossed && current_diff < kEdgeThreshold) {
         if (last_heartbeat != 0 && crossed_time - last_heartbeat > 300) {
@@ -166,21 +140,16 @@ void loop() {
             Serial.print("R-ratio: "); Serial.println(r);
             Serial.print("RED Avg: "); Serial.println(stat_red.average());
             Serial.print("IR Avg: "); Serial.println(stat_ir.average());
-            Serial.print("Humidity: "); Serial.print(h); Serial.println(" %");
-            Serial.print("Temperature: "); Serial.print(t); Serial.println(" *C");
             Serial.println("--------------------------");
           }
-
-          if (bpm > 30 && bpm < 120) {
+          if (bpm < 50 || bpm > 120 || spo2 < 80) {
             Serial.println("----- Heartbeat Alert -----");
             Serial.print("Heart Rate (BPM): "); Serial.println(bpm);
             Serial.print("SpO2 (%): "); Serial.println(spo2);
             digitalWrite(buzzer, HIGH);
-            delay(500);             // Buzzer duration
-            digitalWrite(buzzer, LOW);
             Serial.println("-------- Dangerous ---------");
+            //            Serial.println("--------------------------");
           }
-
           stat_red.reset();
           stat_ir.reset();
         }
@@ -192,16 +161,42 @@ void loop() {
   }
 
   // -----------------------------
-  // Air Quality Processing (MQ135)
+  // Air Quality Processing (MQ135) - reduced output
   // -----------------------------
   int sensor_value = analogRead(MQ135_SENSOR_PIN);
   String air_quality_label = air_quality_data(sensor_value);
 
-  if (sensor_value < 150) digitalWrite(led, LOW);
+  //  Serial.print("Air Quality: ");
+  //  Serial.println(air_quality_label);
+
+  if (sensor_value < 150) {
+    digitalWrite(led, LOW);
+  }
   else {
-    Serial.print("Air Quality: "); Serial.println(air_quality_label);
+    Serial.print("Air Quality: ");
+    Serial.println(air_quality_label);
+    Serial.print("RAW DATA GAS SENSOR: ");Serial.println(sensor_value);
     digitalWrite(led, HIGH);
   }
+  // ---------- DHT11 ----------
+  float h = dht.readHumidity();
+  float t = dht.readTemperature();
+  if (isnan(h) || isnan(t)) {
+    Serial.println("Failed to read DHT sensor!");
+    delay(50);
+    return;
+  }
+  if (t < 25 || h > 80){
+  Serial.print("Humidity: "); Serial.print(h); Serial.println(" %");
+  Serial.print("Temperature: "); Serial.print(t); Serial.println(" *C");
+  }
 
-  delay(1000);  // Main loop delay
+}
+
+String air_quality_data(int sensor_value) {
+  if (sensor_value < 50) return "Excellent";
+  else if (sensor_value < 100) return "Good";
+  else if (sensor_value < 150) return "Moderate";
+  else if (sensor_value < 200) return "Poor";
+  else return "Dangerous";
 }

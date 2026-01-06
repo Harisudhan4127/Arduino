@@ -1,5 +1,14 @@
 #include <MAX3010x.h>
+#include <DHT.h>
 #include "filters.h"
+
+// -----------------------------
+// DHT22 Setup
+// -----------------------------
+#define DHTTYPE DHT11
+#define DHTPIN 27
+DHT dht(DHTPIN, DHTTYPE);
+
 
 const int MQ135_SENSOR_PIN = 34;  // ESP32 ADC pin
 int led = 12;
@@ -54,10 +63,10 @@ bool crossed = false;
 long crossed_time = 0;
 
 void setup() {
-  Serial.begin(115200);
+  Serial.begin(9600);
   pinMode(led, OUTPUT);
   pinMode(buzzer, OUTPUT);
-
+  Serial.println("initialized project ");
   if (sensor.begin() && sensor.setSamplingRate(kSamplingRate)) {
     Serial.println("Sensor initialized");
   }
@@ -65,9 +74,11 @@ void setup() {
     Serial.println("Sensor not found");
     while (1);
   }
+  dht.begin();
 }
 
 void loop() {
+
   // -----------------------------
   // Heartbeat + SpO2 Processing
   // -----------------------------
@@ -121,6 +132,16 @@ void loop() {
           float r = rred / rir;
           float spo2 = kSpO2_A * r * r + kSpO2_B * r + kSpO2_C;
 
+          // ---------- DHT11 ----------
+          float h = dht.readHumidity();
+          float t = dht.readTemperature();
+          if (isnan(h) || isnan(t)) {
+            Serial.println("Failed to read DHT sensor!");
+            delay(50);
+            return;
+          }
+
+
           if (bpm > 50 && bpm < 250) {
             Serial.println("----- Heartbeat Data -----");
             Serial.print("Time (ms): "); Serial.println(millis());
@@ -131,14 +152,28 @@ void loop() {
             Serial.print("IR Avg: "); Serial.println(stat_ir.average());
             Serial.println("--------------------------");
           }
-          if (bpm > 30 && bpm < 120){
-            Serial.println("----- Heartbeat Alert -----");
-            Serial.print("Heart Rate (BPM): "); Serial.println(bpm);
-            Serial.print("SpO2 (%): "); Serial.println(spo2);
-            digitalWrite(buzzer, HIGH);
-            Serial.println("-------- Dangerous ---------");
-//            Serial.println("--------------------------");
+          if (bpm < 50 || bpm > 120 || spo2 < 80) {
+            if (t < 30 || t > 38 && h > 80) {
+              Serial.println("----- Heartbeat Alert -----");
+              Serial.print("Heart Rate (BPM): "); Serial.println(bpm);
+              Serial.print("SpO2 (%)        : "); Serial.println(spo2);
+              Serial.print("Humidity        : "); Serial.print(h); Serial.println(" %");
+              Serial.print("Temperature     : "); Serial.print(t); Serial.println(" *C");
+              Serial.println("-------- Dangerous --------");
+              digitalWrite(buzzer, HIGH);
+              delay(10);
+              digitalWrite(buzzer, LOW);
+              delay(10);
+              digitalWrite(buzzer, HIGH);
+              delay(10);
+              digitalWrite(buzzer, LOW);
             }
+            //            Serial.println("--------------------------");
+          }
+          else {
+            digitalWrite(buzzer, LOW);
+          }
+
           stat_red.reset();
           stat_ir.reset();
         }
@@ -158,20 +193,21 @@ void loop() {
   //  Serial.print("Air Quality: ");
   //  Serial.println(air_quality_label);
 
-  if (sensor_value < 150) {
+  if (sensor_value < 350) {
     digitalWrite(led, LOW);
   }
   else {
     Serial.print("Air Quality: ");
     Serial.println(air_quality_label);
+    Serial.print("RAW DATA GAS SENSOR: "); Serial.println(sensor_value);
     digitalWrite(led, HIGH);
   }
 }
 
 String air_quality_data(int sensor_value) {
-  if (sensor_value < 50) return "Excellent";
-  else if (sensor_value < 100) return "Good";
-  else if (sensor_value < 150) return "Moderate";
-  else if (sensor_value < 200) return "Poor";
+  if (sensor_value < 150) return "Excellent";
+  else if (sensor_value < 200) return "Good";
+  else if (sensor_value < 350) return "Moderate";
+  else if (sensor_value < 500) return "Poor";
   else return "Dangerous";
 }

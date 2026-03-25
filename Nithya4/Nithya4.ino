@@ -7,7 +7,9 @@
 // Pins
 #define MQ3_AOUT A0
 #define BUZZER_PIN 7
-#define LED_PIN 13
+#define RED_LED 13
+#define YELLOW_LED 12
+#define GREEN_LED 11
 
 // OLED settings
 #define SCREEN_WIDTH 128
@@ -23,7 +25,10 @@ void setup() {
 
   pinMode(MQ3_AOUT, INPUT);
   pinMode(BUZZER_PIN, OUTPUT);
-  pinMode(LED_PIN, OUTPUT);
+  pinMode(RED_LED, OUTPUT);
+  pinMode(YELLOW_LED, OUTPUT);
+  pinMode(GREEN_LED, OUTPUT);
+
 
   // OLED initialize
   if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
@@ -46,27 +51,35 @@ void loop() {
   int alcoholValue = analogRead(MQ3_AOUT);
   float temperature = mlx.readObjectTempC();
 
-  bool alcoholDetected = (alcoholValue > 150);
-  bool abnormalTemp = (temperature >= 38.0); // || temperature <= 33.5
+  bool alcoholDetected = (alcoholValue > 120);
+  bool abnormalTemp = (temperature >= 38.0);  // || temperature <= 33.5
 
   String statusMsg;
 
   if (alcoholDetected && abnormalTemp) {
     statusMsg = "Alcohol + Fever!";
     tone(BUZZER_PIN, 1000);
-    digitalWrite(LED_PIN, HIGH);
+    digitalWrite(RED_LED, HIGH);
+    digitalWrite(YELLOW_LED, LOW);
+    digitalWrite(GREEN_LED, LOW);
   } else if (alcoholDetected) {
     statusMsg = "Alcohol Detected!";
     tone(BUZZER_PIN, 800);
-    digitalWrite(LED_PIN, HIGH);
+    digitalWrite(RED_LED, HIGH);
+    digitalWrite(YELLOW_LED, LOW);
+    digitalWrite(GREEN_LED, LOW);
   } else if (abnormalTemp) {
     statusMsg = "Fever Detected!";
     tone(BUZZER_PIN, 600);
-    digitalWrite(LED_PIN, HIGH);
+    digitalWrite(RED_LED, LOW);
+    digitalWrite(YELLOW_LED, HIGH);
+    digitalWrite(GREEN_LED, LOW);
   } else {
     statusMsg = "Normal Condition";
     noTone(BUZZER_PIN);
-    digitalWrite(LED_PIN, LOW);
+    digitalWrite(RED_LED, LOW);
+    digitalWrite(YELLOW_LED, LOW );
+    digitalWrite(GREEN_LED, HIGH);
   }
 
   Serial.print("Temperature: ");

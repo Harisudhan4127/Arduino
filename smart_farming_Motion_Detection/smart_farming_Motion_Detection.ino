@@ -80,7 +80,7 @@ void handleUltrasonic()
     //    Serial.print(distance);
     //    Serial.println(" cm");
 
-    if (distance <= 10 && !objectDetected)
+    if (distance <= 20 && !objectDetected)
     {
       Serial.println("Object detected!");
       digitalWrite(buzzer, HIGH); // Buzzer ON
@@ -91,7 +91,7 @@ void handleUltrasonic()
       digitalWrite(buzzer, LOW);    // Buzzer OFF
     }
 
-    if (distance > 15)
+    if (distance > 30)
     {
       objectDetected = false;
     }
@@ -170,5 +170,5 @@ void Moisture()
     digitalWrite(pump_out, LOW);
   }
 
-  delay(250);
+  delay(150);
 }

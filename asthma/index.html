@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AsthmaGuard Monitor</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#050c18;--surface:#0b1628;--border:#1a2d4a;
+  --text:#c8d8f0;--muted:#4a6080;
+  --stable:#00e5a0;   --stable-glow:rgba(0,229,160,0.25);
+  --caution:#ffe566;  --caution-glow:rgba(255,229,102,0.25);
+  --alert:#f5a623;    --alert-glow:rgba(245,166,35,0.25);
+  --critical:#ff2d55; --critical-glow:rgba(255,45,85,0.35);
+  --accent:#3d8bff;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{
+  font-family:'Syne',sans-serif;background:var(--bg);color:var(--text);
+  min-height:100vh;display:flex;flex-direction:column;align-items:center;
+  padding:20px 16px 40px;position:relative;overflow-x:hidden;
+}
+body::before{
+  content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
+  background-image:linear-gradient(rgba(61,139,255,.04) 1px,transparent 1px),
+                   linear-gradient(90deg,rgba(61,139,255,.04) 1px,transparent 1px);
+  background-size:40px 40px;
+}
+body::after{
+  content:'';position:fixed;top:-100%;left:0;right:0;height:60%;
+  background:linear-gradient(to bottom,transparent,rgba(61,139,255,.03),transparent);
+  animation:scanline 6s linear infinite;pointer-events:none;z-index:0;
+}
+@keyframes scanline{to{top:200%;}}
+
+/* ── Header ── */
+.header{
+  position:relative;z-index:1;width:100%;max-width:520px;
+  display:flex;align-items:center;justify-content:space-between;
+  margin-bottom:24px;padding-bottom:16px;border-bottom:1px solid var(--border);
+}
+.logo{display:flex;align-items:center;gap:10px;}
+.logo-icon{
+  width:36px;height:36px;border-radius:8px;font-size:18px;
+  background:linear-gradient(135deg,#3d8bff,#00e5a0);
+  display:flex;align-items:center;justify-content:center;
+}
+.logo-text{font-size:18px;font-weight:800;letter-spacing:-.5px;color:#fff;}
+.logo-text span{color:var(--accent);}
+.live-badge{
+  display:flex;align-items:center;gap:6px;
+  font-family:'Space Mono',monospace;font-size:11px;color:var(--stable);
+  background:rgba(0,229,160,.08);border:1px solid rgba(0,229,160,.2);
+  padding:4px 10px;border-radius:20px;
+}
+.live-dot{
+  width:6px;height:6px;background:var(--stable);border-radius:50%;
+  animation:pulse-dot 1.5s ease-in-out infinite;
+}
+@keyframes pulse-dot{0%,100%{opacity:1;transform:scale(1);}50%{opacity:.4;transform:scale(.7);}}
+
+/* ── Status Banner ── */
+.status-banner{
+  position:relative;z-index:1;width:100%;max-width:520px;
+  border-radius:16px;padding:20px 24px;margin-bottom:20px;
+  display:flex;align-items:center;gap:16px;
+  border:1.5px solid transparent;
+  transition:all .5s cubic-bezier(.4,0,.2,1);overflow:hidden;
+}
+.status-banner::before{
+  content:'';position:absolute;inset:0;opacity:.07;z-index:-1;
+  background:var(--sc,var(--stable));transition:background .5s;
+}
+.status-ring{
+  flex-shrink:0;width:56px;height:56px;border-radius:50%;
+  border:3px solid var(--sc,var(--stable));
+  display:flex;align-items:center;justify-content:center;font-size:24px;
+  position:relative;transition:border-color .5s;
+}
+.status-ring::after{
+  content:'';position:absolute;inset:-6px;border-radius:50%;
+  border:1.5px solid var(--sc,var(--stable));opacity:.3;
+  animation:ring-expand 2s ease-out infinite;transition:border-color .5s;
+}
+@keyframes ring-expand{0%{transform:scale(.95);opacity:.4;}100%{transform:scale(1.4);opacity:0;}}
+.status-info{flex:1;}
+.status-label{
+  font-family:'Space Mono',monospace;font-size:11px;
+  letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:4px;
+}
+.status-value{
+  font-size:26px;font-weight:800;letter-spacing:-.5px;
+  color:var(--sc,var(--stable));transition:color .5s;
+}
+.status-time{font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-top:2px;}
+
+/* State-specific glow */
+.state-critical .status-banner{animation:crit-flash 1.2s ease-in-out infinite;}
+@keyframes crit-flash{0%,100%{box-shadow:0 0 0 0 var(--critical-glow);}50%{box-shadow:0 0 30px 6px var(--critical-glow);}}
+.state-alert .status-banner{animation:alert-pulse 1.8s ease-in-out infinite;}
+@keyframes alert-pulse{0%,100%{box-shadow:0 0 0 0 var(--alert-glow);}50%{box-shadow:0 0 22px 4px var(--alert-glow);}}
+.state-caution .status-banner{animation:caut-pulse 2.5s ease-in-out infinite;}
+@keyframes caut-pulse{0%,100%{box-shadow:0 0 0 0 var(--caution-glow);}50%{box-shadow:0 0 14px 3px var(--caution-glow);}}
+
+/* ── Metric Grid ── */
+.grid{
+  position:relative;z-index:1;width:100%;max-width:520px;
+  display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;
+}
+.card{
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:14px;padding:18px 16px;position:relative;overflow:hidden;
+  transition:border-color .4s,box-shadow .4s;
+}
+.card::before{
+  content:'';position:absolute;top:0;left:0;right:0;height:2px;
+  background:var(--ca,var(--accent));border-radius:2px 2px 0 0;opacity:.7;
+}
+.card-icon{font-size:20px;margin-bottom:8px;display:block;}
+.card-label{
+  font-family:'Space Mono',monospace;font-size:10px;
+  letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:6px;
+}
+.card-value{font-size:32px;font-weight:800;color:#fff;line-height:1;transition:color .4s;}
+.card-unit{font-family:'Space Mono',monospace;font-size:12px;color:var(--muted);margin-top:4px;}
+.card-bar{margin-top:12px;height:4px;background:var(--border);border-radius:2px;overflow:hidden;}
+.card-bar-fill{height:100%;background:var(--ca,var(--accent));border-radius:2px;transition:width .8s cubic-bezier(.4,0,.2,1),background .4s;}
+
+/* Extra 2 cards for ambient sensors */
+.card-wide{grid-column:span 1;}
+
+/* ── Advisory panel (CAUTION + ALERT + CRITICAL) ── */
+.advisory{
+  position:relative;z-index:1;width:100%;max-width:520px;
+  border-radius:14px;padding:16px;margin-bottom:16px;display:none;
+}
+.state-caution .advisory,
+.state-alert   .advisory,
+.state-critical .advisory{display:block;}
+
+.advisory-caution {background:rgba(255,229,102,.06);border:1px solid rgba(255,229,102,.2);}
+.advisory-alert   {background:rgba(245,166,35,.07); border:1px solid rgba(245,166,35,.25);}
+.advisory-critical{background:rgba(255,45,85,.08);  border:1px solid rgba(255,45,85,.3);}
+
+.advisory-title{
+  font-size:13px;font-weight:700;margin-bottom:10px;
+  display:flex;align-items:center;gap:6px;
+}
+.advisory ul{list-style:none;display:flex;flex-direction:column;gap:6px;}
+.advisory li{
+  font-family:'Space Mono',monospace;font-size:11px;color:var(--text);
+  opacity:.85;display:flex;gap:8px;
+}
+
+/* ── Emergency button (CRITICAL only) ── */
+.emergency{
+  position:relative;z-index:1;width:100%;max-width:520px;
+  display:none;flex-direction:column;gap:10px;margin-bottom:16px;
+}
+.state-critical .emergency{display:flex;}
+.btn-emergency{
+  display:flex;align-items:center;justify-content:center;gap:10px;
+  background:var(--critical);color:#fff;border:none;border-radius:12px;
+  padding:16px 24px;font-family:'Syne',sans-serif;
+  font-size:16px;font-weight:700;cursor:pointer;text-decoration:none;
+  letter-spacing:.3px;animation:btn-pulse 1.4s ease-in-out infinite;
+  transition:transform .1s;
+}
+.btn-emergency:active{transform:scale(.97);}
+@keyframes btn-pulse{0%,100%{box-shadow:0 0 0 0 rgba(255,45,85,.5);}50%{box-shadow:0 0 0 10px rgba(255,45,85,0);}}
+.emergency-note{
+  font-family:'Space Mono',monospace;font-size:11px;
+  color:var(--critical);text-align:center;opacity:.7;
+}
+
+/* ── Footer ── */
+.footer{
+  position:relative;z-index:1;
+  font-family:'Space Mono',monospace;font-size:10px;
+  color:var(--muted);margin-top:8px;letter-spacing:.5px;
+}
+</style>
+</head>
+<body id="root">
+
+<header class="header">
+  <div class="logo">
+    <div class="logo-icon">🫁</div>
+    <div class="logo-text">Asthma<span>Guard</span></div>
+  </div>
+  <div class="live-badge"><div class="live-dot"></div>LIVE</div>
+</header>
+
+<!-- Status Banner -->
+<div class="status-banner" id="statusBanner">
+  <div class="status-ring" id="statusRing">🟢</div>
+  <div class="status-info">
+    <div class="status-label">Patient Status</div>
+    <div class="status-value" id="statusValue">STABLE</div>
+    <div class="status-time"  id="statusTime">--:--:--</div>
+  </div>
+</div>
+
+<!-- Vital Metric Cards -->
+<div class="grid">
+  <div class="card" style="--ca:#ff6b6b">
+    <span class="card-icon">💓</span>
+    <div class="card-label">Heart Rate</div>
+    <div class="card-value" id="bpm">--</div>
+    <div class="card-unit">BPM</div>
+    <div class="card-bar"><div class="card-bar-fill" id="bpmBar" style="background:#ff6b6b"></div></div>
+  </div>
+  <div class="card" style="--ca:#3d8bff">
+    <span class="card-icon">🩸</span>
+    <div class="card-label">Blood Oxygen</div>
+    <div class="card-value" id="spo2">--</div>
+    <div class="card-unit">SpO₂ %</div>
+    <div class="card-bar"><div class="card-bar-fill" id="spo2Bar" style="background:#3d8bff"></div></div>
+  </div>
+  <div class="card" style="--ca:#00e5a0">
+    <span class="card-icon">💨</span>
+    <div class="card-label">Air Quality</div>
+    <div class="card-value" id="air">--</div>
+    <div class="card-unit">AQI %</div>
+    <div class="card-bar"><div class="card-bar-fill" id="airBar" style="background:#00e5a0"></div></div>
+  </div>
+  <div class="card" style="--ca:#f5a623">
+    <span class="card-icon">🌡️</span>
+    <div class="card-label">Body Temp</div>
+    <div class="card-value" id="bodyTemp">--</div>
+    <div class="card-unit">°C</div>
+    <div class="card-bar"><div class="card-bar-fill" id="tempBar" style="background:#f5a623"></div></div>
+  </div>
+</div>
+
+<!-- Ambient Row -->
+<div class="grid" style="margin-bottom:16px">
+  <div class="card card-wide" style="--ca:#a78bfa">
+    <span class="card-icon">🌤️</span>
+    <div class="card-label">Ambient Temp</div>
+    <div class="card-value" id="ambTemp">--</div>
+    <div class="card-unit">°C</div>
+  </div>
+  <div class="card card-wide" style="--ca:#38bdf8">
+    <span class="card-icon">💧</span>
+    <div class="card-label">Humidity</div>
+    <div class="card-value" id="humidity">--</div>
+    <div class="card-unit">%</div>
+  </div>
+</div>
+
+<!-- Advisory: shown for CAUTION / ALERT / CRITICAL, content swaps -->
+<div class="advisory" id="advisory">
+  <div class="advisory-title" id="advisoryTitle"></div>
+  <ul id="advisoryList"></ul>
+</div>
+
+<!-- Emergency nav: CRITICAL only -->
+<div class="emergency">
+  <a class="btn-emergency" id="mapsLink" href="#" target="_blank">
+    🚨 &nbsp; NAVIGATE TO NEAREST HOSPITAL
+  </a>
+  <div class="emergency-note">⚡ Critical alert — call emergency services immediately</div>
+</div>
+
+<div class="footer">AsthmaGuard v2.0 · ESP32 · Refresh every 2 s</div>
+
+<script>
+const MAPS_URL = "https://maps.app.goo.gl/Vy91bg2KMgsSKbVgE7";
+let lastStatus = null;
+
+const ADVICE = {
+  CAUTION: {
+    icon: "🟡", color: "var(--caution)",
+    cls:  "advisory-caution",
+    title: "⚠️ Caution – Early Warning Signs",
+    tips: [
+      "Move to a cooler, well-ventilated area",
+      "Reduce physical activity",
+      "Keep rescue inhaler within reach",
+      "Monitor symptoms closely"
+    ]
+  },
+  ALERT: {
+    icon: "🟠", color: "var(--alert)",
+    cls:  "advisory-alert",
+    title: "🔶 Alert – Elevated Risk",
+    tips: [
+      "Use your prescribed rescue inhaler now",
+      "Sit upright and breathe slowly",
+      "Avoid all triggers (smoke, dust, exertion)",
+      "Alert a caregiver or someone nearby",
+      "Prepare to seek medical help if no improvement"
+    ]
+  },
+  CRITICAL: {
+    icon: "🔴", color: "var(--critical)",
+    cls:  "advisory-critical",
+    title: "🚨 Critical – Seek Emergency Care",
+    tips: [
+      "Call emergency services immediately",
+      "Take rescue inhaler if not already done",
+      "Stay seated, do not walk or exert",
+      "Loosen any tight clothing around chest",
+      "Do not leave the patient alone"
+    ]
+  }
+};
+
+function clamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
+
+function formatTime(){
+  return new Date().toLocaleTimeString('en-US',{hour12:false});
+}
+
+function applyState(s) {
+  const root   = document.getElementById('root');
+  const banner = document.getElementById('statusBanner');
+  const ring   = document.getElementById('statusRing');
+  const val    = document.getElementById('statusValue');
+  const adv    = document.getElementById('advisory');
+  const advT   = document.getElementById('advisoryTitle');
+  const advL   = document.getElementById('advisoryList');
+
+  root.className = '';
+
+  let sc, borderColor;
+  if      (s === 'CRITICAL') { sc = 'var(--critical)'; borderColor = 'rgba(255,45,85,.4)';   root.classList.add('state-critical'); }
+  else if (s === 'ALERT')    { sc = 'var(--alert)';    borderColor = 'rgba(245,166,35,.4)';  root.classList.add('state-alert');    }
+  else if (s === 'CAUTION')  { sc = 'var(--caution)';  borderColor = 'rgba(255,229,102,.35)';root.classList.add('state-caution');  }
+  else                       { sc = 'var(--stable)';   borderColor = 'rgba(0,229,160,.3)';   root.classList.add('state-stable');   }
+
+  // Apply CSS custom property for status color via inline style
+  banner.style.cssText = `--sc:${sc}; border-color:${borderColor}`;
+  // Propagate to ring child
+  banner.querySelector('.status-ring').style.setProperty('--sc', sc);
+
+  val.textContent = s;
+
+  // Advisory panel
+  if (ADVICE[s]) {
+    const a = ADVICE[s];
+    adv.className = 'advisory ' + a.cls;
+    ring.textContent = a.icon;
+    advT.innerHTML = a.title;
+    advT.style.color = a.color;
+    advL.innerHTML = a.tips.map(t =>
+      `<li><span style="color:${a.color}">→</span> ${t}</li>`
+    ).join('');
+    if (s === 'CRITICAL') document.getElementById('mapsLink').href = MAPS_URL;
+  } else {
+    adv.className = 'advisory';
+    ring.textContent = '🟢';
+    advT.innerHTML = '';
+    advL.innerHTML = '';
+  }
+}
+
+function update() {
+  fetch('/data')
+    .then(r => r.json())
+    .then(d => {
+      document.getElementById('bpm').textContent     = d.bpm;
+      document.getElementById('spo2').textContent    = d.spo2;
+      document.getElementById('air').textContent     = d.air;
+      document.getElementById('bodyTemp').textContent= parseFloat(d.bodyTemp).toFixed(1);
+      document.getElementById('ambTemp').textContent = parseFloat(d.temp).toFixed(1);
+      document.getElementById('humidity').textContent= parseFloat(d.humidity).toFixed(0);
+      document.getElementById('statusTime').textContent = 'Updated ' + formatTime();
+
+      // Progress bars
+      document.getElementById('bpmBar').style.width  = clamp((d.bpm / 180)*100, 0, 100) + '%';
+      document.getElementById('spo2Bar').style.width = clamp(d.spo2, 0, 100) + '%';
+      document.getElementById('airBar').style.width  = clamp(d.air, 0, 100) + '%';
+      document.getElementById('tempBar').style.width = clamp(((d.bodyTemp - 35)/7)*100, 0, 100) + '%';
+
+      if (d.status !== lastStatus) {
+        applyState(d.status);
+        lastStatus = d.status;
+      }
+    })
+    .catch(() => {
+      document.getElementById('statusValue').textContent = 'NO SIGNAL';
+    });
+}
+
+update();
+setInterval(update, 2000);
+</script>
+</body>
+</html>

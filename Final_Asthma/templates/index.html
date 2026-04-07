@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Asthma Care Pro Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <style>
+        :root { --bg: #0f172a; --card: #1e293b; --accent: #38bdf8; }
+        body { font-family: 'Inter', sans-serif; background: var(--bg); color: white; margin: 0; display: flex; }
+        #sidebar { width: 300px; background: var(--card); height: 100vh; padding: 20px; border-right: 1px solid #334155; }
+        #main { flex-grow: 1; padding: 25px; overflow-y: auto; height: 100vh; box-sizing: border-box; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; }
+        .stat-card { background: var(--card); padding: 20px; border-radius: 12px; position: relative; cursor: pointer; border: 2px solid transparent; transition: 0.3s; }
+        .stat-card:hover { border-color: var(--accent); }
+        .stat-card h3 { margin: 0; font-size: 0.9em; color: #94a3b8; }
+        .stat-card h2 { margin: 10px 0 0 0; font-size: 1.8em; }
+        .graph-container { background: var(--card); margin-top: 20px; padding: 20px; border-radius: 12px; display: none; }
+        .active-graph { display: block !important; }
+        select, button { width: 100%; padding: 10px; margin-top: 10px; border-radius: 5px; border: none; }
+        button { background: var(--accent); color: var(--bg); font-weight: bold; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <div id="sidebar">
+        <h2>⚙️ Configuration</h2>
+        <label>Select Port:</label>
+        <select id="port">{% for p in ports %}<option value="{{p}}">{{p}}</option>{% endfor %}</select>
+        <label>Baud Rate:</label>
+        <select id="baud"><option>9600</option><option selected>115200</option></select>
+        <button onclick="updateConfig()">Update Connection</button>
+        <hr style="margin: 20px 0; border: 0.5px solid #334155;">
+        <p>📡 <b>Wireless IP:</b> <br><code style="background:#000; padding:5px;">http://{{ip}}:5000/update</code></p>
+        <p>Status: <span id="status">Ready</span></p>
+    </div>
+
+    <div id="main">
+        <div class="grid">
+            <div class="stat-card" onclick="showGraph('bpm')"><h3>Heart Rate</h3><h2 id="val-bpm">--</h2><small>BPM</small></div>
+            <div class="stat-card" onclick="showGraph('spo2')"><h3>Blood Oxygen</h3><h2 id="val-spo2">--</h2><small>%</small></div>
+            <div class="stat-card" onclick="showGraph('temp')"><h3>Body Temp</h3><h2 id="val-temp">--</h2><small>°C</small></div>
+            <div class="stat-card" onclick="showGraph('aqi')"><h3>Air Quality</h3><h2 id="val-aqi">--</h2><small>PPM</small></div>
+            <div class="stat-card" onclick="showGraph('surr')"><h3>Environment</h3><h2 id="val-surr">--</h2><small>Temp/Hum</small></div>
+        </div>
+
+        <div id="graph-section" class="graph-container active-graph">
+            <h3 id="graph-title">Heart Rate Real-Time</h3>
+            <canvas id="liveChart" height="100"></canvas>
+        </div>
+    </div>
+
+    <script>
+        let currentParam = 'bpm';
+        const ctx = document.getElementById('liveChart').getContext('2d');
+        const chart = new Chart(ctx, {
+            type: 'line',
+            data: { labels: [], datasets: [{ label: 'Data', borderColor: '#38bdf8', data: [], tension: 0.4, fill: true, backgroundColor: 'rgba(56, 189, 248, 0.1)' }] },
+            options: { responsive: true, scales: { x: { display: false }, y: { grid: { color: '#334155' } } } }
+        });
+
+        function showGraph(param) {
+            currentParam = param;
+            document.getElementById('graph-title').innerText = param.toUpperCase() + " Live Feed";
+            chart.data.labels = [];
+            chart.data.datasets[0].data = [];
+            chart.update();
+        }
+
+        async function updateConfig() {
+            const port = document.getElementById('port').value;
+            const baud = document.getElementById('baud').value;
+            const res = await fetch('/config', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({port, baud}) });
+            const data = await res.json();
+            document.getElementById('status').innerText = data.status;
+        }
+
+        const socket = io();
+        socket.on('update_all', (data) => {
+            document.getElementById('val-bpm').innerText = data.bpm;
+            document.getElementById('val-spo2').innerText = data.spo2;
+            document.getElementById('val-temp').innerText = data.temp;
+            document.getElementById('val-aqi').innerText = data.aqi;
+            document.getElementById('val-surr').innerText = `${data.surrT}°C / ${data.hum}%`;
+
+            let val = data[currentParam];
+            if(currentParam === 'surr') val = data.surrT; // Map environment to Surrounding Temp for graph
+
+            const time = new Date().toLocaleTimeString();
+            chart.data.labels.push(time);
+            chart.data.datasets[0].data.push(val);
+            if(chart.data.labels.length > 25) { chart.data.labels.shift(); chart.data.datasets[0].data.shift(); }
+            chart.update('none');
+        });
+    </script>
+</body>
+</html>

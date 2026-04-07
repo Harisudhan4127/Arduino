@@ -1,0 +1,347 @@
+#include <WiFi.h>
+#include <WebServer.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_ST7735.h>
+#include <SPI.h>
+#include <DHT.h>
+#include "MAX30105.h"
+#include "spo2_algorithm.h"
+#include "heartRate.h"
+
+// ---------------- TFT ----------------
+#define TFT_CS 5
+#define TFT_RST 4
+#define TFT_DC 2
+Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST);
+
+// ---------------- SENSORS ----------------
+#define DHTPIN 13
+#define DHTTYPE DHT11
+#define MQ135_PIN 34
+DHT dht(DHTPIN, DHTTYPE);
+MAX30105 particleSensor;
+
+// ---------------- WIFI ----------------
+const char* ssid = "AsthmaMonitor";
+const char* password = "12345678";
+WebServer server(80);
+
+// ---------------- DATA ----------------
+int bpm = 0;
+int spo2 = 98;
+float temperature = 0;
+float humidity = 0;
+int airPercent = 0;
+String status = "STABLE";
+
+long lastBeat = 0;
+
+// MAX30105 Buffers
+#define BUFFER_LENGTH 100
+uint32_t irBuffer[BUFFER_LENGTH];
+uint32_t redBuffer[BUFFER_LENGTH];
+int32_t spo2Val = 0, heartRateVal = 0;
+int8_t validSPO2, validHR;
+float beatsPerMinute = 0;
+int beatAvg = 0, sp02Avg = 0;
+
+// ---------------- SETUP ----------------
+void setup() {
+  Serial.begin(115200);
+  analogReadResolution(12);
+  analogSetAttenuation(ADC_11db);
+
+  dht.begin();
+
+  // TFT
+  tft.initR(INITR_BLACKTAB);
+  tft.setRotation(1);
+  drawBase();
+
+  // MAX30105
+  Serial.print("Initializing MAX30105...");
+  if (!particleSensor.begin(Wire, I2C_SPEED_STANDARD)) {
+    Serial.println("MAX30105 not found!");
+    while (1)
+      ;
+  }
+  particleSensor.setup(50, 1, 2, 100, 69, 4096);  // ledBrightness, sampleAverage, ledMode, sampleRate, pulseWidth, adcRange
+
+  // WiFi AP
+  WiFi.mode(WIFI_AP);
+  WiFi.softAP(ssid, password);
+
+  // Web
+  server.on("/", handleRoot);
+  server.on("/data", handleData);
+  server.begin();
+}
+
+// ---------------- LOOP ----------------
+void loop() {
+  server.handleClient();
+  drawWiFi();
+  readSensors();
+  calculateRisk();
+  updateDisplay();
+}
+
+void drawBase() {
+  tft.fillScreen(ST77XX_BLACK);
+
+  // Top bar
+  tft.fillRect(0, 0, 160, 20, tft.color565(20, 20, 60));
+
+  // Centered Title
+  tft.setTextSize(1);
+  tft.setTextColor(ST77XX_CYAN);
+
+  String title = "ASTHMA ALERT";
+  int16_t x1, y1;
+  uint16_t w, h;
+
+  tft.getTextBounds(title, 0, 0, &x1, &y1, &w, &h);
+  int x = (160 - w) / 2;
+
+  tft.setCursor(x, 22);
+  tft.print(title);
+
+  // Divider lines
+  tft.drawLine(10, 35, 150, 35, ST77XX_WHITE);
+  tft.drawLine(10, 110, 150, 110, ST77XX_WHITE);
+}
+
+// ---------------- WIFI ICON ----------------
+void drawWiFi() {
+  // Clear top bar
+  tft.fillRect(0, 0, 160, 20, tft.color565(20, 20, 60));
+
+  // ================= WIFI ICON (LEFT) =================
+  int stations = WiFi.softAPgetStationNum();
+  int bars = stations > 0 ? 4 : 1;
+
+  int x = 5, y = 15;
+
+  for (int i = 0; i < 4; i++) {
+    if (i < bars)
+      tft.fillRect(x + i * 6, y - i * 3, 4, i * 3, ST77XX_GREEN);
+    else
+      tft.drawRect(x + i * 6, y - i * 3, 4, i * 3, ST77XX_WHITE);
+  }
+
+  // ================= IP ADDRESS (RIGHT ALIGNED) =================
+  IPAddress ip = WiFi.softAPIP();
+  String ipStr = ip.toString();
+
+  int16_t x1, y1;
+  uint16_t w, h;
+
+  tft.setTextSize(1);
+  tft.setTextColor(ST77XX_WHITE);
+
+  // Get width of IP text
+  tft.getTextBounds(ipStr, 0, 0, &x1, &y1, &w, &h);
+
+  // Right align with padding
+  int ipX = 160 - w - 5;
+
+  tft.setCursor(ipX, 5);
+  tft.print(ipStr);
+}
+
+// ================= SENSOR =================
+void readSensors() {
+  temperature = dht.readTemperature();
+  humidity = dht.readHumidity();
+  int air = analogRead(MQ135_PIN);
+  airPercent = map(air, 0, 4095, 100, 0);
+
+  // MAX30105 Sampling
+  for (byte i = 0; i < BUFFER_LENGTH; i++) {
+    while (!particleSensor.available()) particleSensor.check();
+    redBuffer[i] = particleSensor.getRed();
+    irBuffer[i] = particleSensor.getIR();
+    particleSensor.nextSample();
+  }
+
+  maxim_heart_rate_and_oxygen_saturation(irBuffer, BUFFER_LENGTH, redBuffer,
+                                         &spo2Val, &validSPO2, &heartRateVal, &validHR);
+
+  if (validHR) bpm = heartRateVal;
+  if (validSPO2) spo2 = spo2Val;
+}
+
+// ================= AI =================
+void calculateRisk() {
+  int risk = 0;
+  if (spo2 < 92) risk += 50;
+  if (bpm > 110) risk += 30;
+  if (airPercent < 75) risk += 30;
+  if (humidity > 80) risk += 10;
+
+  if (risk > 80) status = "CRITICAL";
+  else if (risk > 60) status = "ALERT";
+  else if (risk > 30) status = "CAUTION";
+  else status = "STABLE";
+}
+
+// ================= DISPLAY =================
+void updateDisplay() {
+  static int lastBPM = -1, lastAir = -1, lastSpO2 = -1;
+  static float lastTemp = -1, lastHum = -1;
+  static String lastStatus = "";
+
+  if (bpm == lastBPM && airPercent == lastAir && 
+      status == lastStatus && spo2 == lastSpO2 &&
+      temperature == lastTemp && humidity == lastHum) return;
+
+  lastBPM = bpm;
+  lastAir = airPercent;
+  lastStatus = status;
+  lastSpO2 = spo2;
+  lastTemp = temperature;
+  lastHum = humidity;
+
+  // Clear center area
+  tft.fillRect(0, 40, 160, 65, ST77XX_BLACK);
+
+  // ================= BPM =================
+  String bpmStr = String(bpm);
+
+  int16_t x1, y1;
+  uint16_t w, h;
+
+  tft.setTextSize(4);
+  tft.setTextColor(ST77XX_WHITE);
+  tft.getTextBounds(bpmStr, 0, 0, &x1, &y1, &w, &h);
+
+  int x = (160 - w) / 2;
+
+  tft.setCursor(x, 50);
+  tft.print(bpmStr);
+
+  // BPM Label
+  tft.setTextSize(1);
+  tft.setCursor(x + w + 5, 70);
+  tft.print("BPM");
+
+  // Heart dot ❤️
+  tft.fillCircle(x + w + 8, 58, 3, ST77XX_RED);
+
+  // ================= STATUS =================
+  uint16_t color =
+      status == "STABLE" ? ST77XX_GREEN :
+      status == "CAUTION" ? ST77XX_YELLOW :
+      status == "ALERT" ? tft.color565(255, 140, 0) :
+      ST77XX_RED;
+
+  // Rounded status bar
+  tft.fillRoundRect(20, 85, 120, 18, 5, color);
+
+  tft.setTextSize(1);
+  tft.setTextColor(ST77XX_BLACK);
+
+  tft.getTextBounds(status, 0, 0, &x1, &y1, &w, &h);
+  tft.setCursor(20 + (120 - w) / 2, 85 + (18 - h) / 2 + 1);
+  tft.print(status);
+
+  // ================= BOTTOM DATA =================
+  tft.fillRect(0, 112, 160, 30, ST77XX_BLACK);
+
+  tft.setTextSize(1);
+  tft.setTextColor(ST77XX_WHITE);
+
+  // Air 🌬
+  tft.setCursor(5, 115);
+  tft.print("Air:");
+  tft.print(airPercent);
+  tft.print("%");
+
+  // SpO2 🩸
+  // tft.setCursor(5, 125);
+  // tft.print("SpO2:");
+  // tft.print(spo2);
+  // tft.print("%");
+
+  // Temperature 🌡
+  tft.setCursor(80, 115);
+  tft.print("Temp:");
+  tft.print(temperature, 1);
+  tft.print("C");
+
+  // Humidity 💧
+  // tft.setCursor(80, 125);
+  // tft.print("Hum:");
+  // tft.print(humidity, 0);
+  // tft.print("%");
+
+  // ================= TOP RIGHT TEMP =================
+  tft.fillRect(100, 2, 60, 16, tft.color565(20, 20, 60));
+
+  tft.setCursor(100, 4);
+  tft.setTextColor(ST77XX_YELLOW);
+  tft.print(temperature, 1);
+  tft.print("C");
+}
+
+// ================= WEB =================
+void handleData() {
+  String json = "{";
+  json += "\"bpm\":" + String(bpm) + ",";
+  json += "\"spo2\":" + String(spo2) + ",";
+  json += "\"air\":" + String(airPercent) + ",";
+  json += "\"status\":\"" + status + "\"";
+  json += "}";
+  server.send(200, "application/json", json);
+}
+
+void handleRoot() {
+  String page = R"====(
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+body{font-family:Arial;background:#0f172a;color:white;text-align:center;}
+.card{background:#1e293b;padding:20px;margin:15px;border-radius:10px;}
+.status{padding:15px;margin:10px;border-radius:10px;font-size:20px;}
+</style>
+</head>
+<body>
+
+<h2>Asthma Dashboard</h2>
+<div id="status" class="status">Loading...</div>
+
+<div class="card">BPM: <span id="bpm"></span></div>
+<div class="card">SpO2: <span id="spo2"></span></div>
+<div class="card">Air: <span id="air"></span></div>
+
+<a id="map" target="_blank">Open Emergency Location</a>
+
+<script>
+function update(){
+fetch('/data').then(r=>r.json()).then(d=>{
+document.getElementById('bpm').innerText=d.bpm;
+document.getElementById('spo2').innerText=d.spo2;
+document.getElementById('air').innerText=d.air;
+
+let s=document.getElementById('status');
+s.innerText=d.status;
+
+if(d.status=="CRITICAL"){
+s.style.background="red";
+document.getElementById("map").href=
+"https://maps.app.goo.gl/Vy91bg2KMgsSKbVg E7";
+} else {
+s.style.background="";
+}
+});
+}
+setInterval(update,2000);
+</script>
+
+</body>
+</html>
+)====";
+  server.send(200, "text/html", page);
+}

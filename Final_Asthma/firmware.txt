@@ -1,0 +1,217 @@
+#include <WiFi.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_ST7735.h>
+#include <SPI.h>
+#include <MAX30105.h>
+#include <heartRate.h>
+#include <DHT.h>
+#include <time.h>
+
+// ---------------- PIN ----------------
+#define TFT_CS   5
+#define TFT_RST  4
+#define TFT_DC   2
+
+#define DHTPIN 13   // FIXED
+#define DHTTYPE DHT11
+#define MQ135_PIN 34
+
+Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST);
+MAX30105 particleSensor;
+DHT dht(DHTPIN, DHTTYPE);
+
+// WiFi AP
+const char* ssidAP = "AsthmaMonitor";
+const char* passAP = "12345678";
+
+// Time
+const char* ntpServer = "pool.ntp.org";
+const long gmtOffset_sec = 19800;
+
+// ---------------- VARIABLES ----------------
+int bpm = 0;
+float temperature, humidity;
+int airPercent = 0;
+String status = "NORMAL";
+
+unsigned long lastClock = 0;
+long lastBeat = 0;
+
+// Cache
+int lastBPM = -1;
+int lastAir = -1;
+String lastStatus = "";
+
+// ================= SETUP =================
+void setup() {
+  Serial.begin(9600);
+
+  analogReadResolution(12);
+  analogSetAttenuation(ADC_11db);
+
+  dht.begin();
+
+  tft.initR(INITR_BLACKTAB);
+  tft.setRotation(1);
+  drawBase();
+
+  particleSensor.begin(Wire);
+  particleSensor.setup();
+
+  WiFi.mode(WIFI_AP);
+  WiFi.softAP(ssidAP, passAP);
+
+  configTime(gmtOffset_sec, 0, ntpServer);
+}
+
+// ================= LOOP =================
+void loop() {
+  updateClock();
+  drawWiFi();
+
+  readSensors();
+  calculateRisk();
+  updateDisplay();
+}
+
+// ================= BASE UI =================
+void drawBase() {
+  tft.fillScreen(ST77XX_BLACK);
+  tft.fillRect(0,0,160,18,tft.color565(20,30,50));
+
+  tft.setTextSize(1);
+  tft.setTextColor(ST77XX_CYAN);
+  tft.setCursor(30,20);
+  tft.print("ASTHMA ALERT");
+
+  tft.drawLine(10,35,150,35,ST77XX_WHITE);
+  tft.drawLine(10,110,150,110,ST77XX_WHITE);
+}
+
+// ================= CLOCK =================
+void updateClock() {
+  if(millis()-lastClock>=1000){
+    lastClock=millis();
+
+    struct tm timeinfo;
+    if(getLocalTime(&timeinfo)){
+      char buf[20];
+      strftime(buf,sizeof(buf),"%d/%m %H:%M",&timeinfo);
+
+      tft.fillRect(5,4,90,10,tft.color565(20,30,50));
+      tft.setCursor(5,6);
+      tft.setTextSize(1);
+      tft.setTextColor(ST77XX_WHITE);
+      tft.print(buf);
+    }
+  }
+}
+
+// ================= WIFI =================
+void drawWiFi() {
+  int stations = WiFi.softAPgetStationNum();
+  int bars = stations>0 ? 4 : 1;
+
+  tft.fillRect(110,4,45,12,tft.color565(20,30,50));
+
+  int x=120,y=8;
+  for(int i=0;i<4;i++){
+    if(i<bars)
+      tft.fillRect(x+i*6,y-i*2,4,i*2+4,ST77XX_GREEN);
+    else
+      tft.drawRect(x+i*6,y-i*2,4,i*2+4,ST77XX_WHITE);
+  }
+}
+
+// ================= SENSOR =================
+void readSensors() {
+  temperature = dht.readTemperature();
+  humidity = dht.readHumidity();
+
+  int air = analogRead(MQ135_PIN);
+  airPercent = map(air,0,4095,100,0);
+
+  long irValue = particleSensor.getIR();
+
+  if (checkForBeat(irValue)) {
+    long delta = millis() - lastBeat;
+    lastBeat = millis();
+
+    float bpmCalc = 60 / (delta / 1000.0);
+    if (bpmCalc > 20 && bpmCalc < 200) bpm = bpmCalc;
+  }
+}
+
+// ================= AI =================
+void calculateRisk() {
+  int risk = 0;
+
+  if (bpm > 100) risk += 30;
+  if (temperature > 37) risk += 20;
+  if (airPercent < 50) risk += 40;
+  if (humidity > 80) risk += 10;
+
+  if (risk > 60) status = "ALERT";
+  else if (risk > 30) status = "WARNING";
+  else status = "NORMAL";
+}
+
+// ================= DISPLAY =================
+void updateDisplay() {
+
+  if (bpm == lastBPM && airPercent == lastAir && status == lastStatus) return;
+
+  lastBPM = bpm;
+  lastAir = airPercent;
+  lastStatus = status;
+
+  // Center area
+  tft.fillRect(10,40,140,65,ST77XX_BLACK);
+
+  // BPM center
+  String bpmStr = String(bpm);
+  int16_t x1,y1; uint16_t w,h;
+
+  tft.setTextSize(4);
+  tft.getTextBounds(bpmStr,0,0,&x1,&y1,&w,&h);
+
+  int bpmX = (160 - w) / 2;
+  int bpmY = 50;
+
+  tft.setCursor(bpmX,bpmY);
+  tft.setTextColor(ST77XX_WHITE);
+  tft.print(bpmStr);
+
+  // Heart dot
+  tft.fillCircle(bpmX + w + 6, bpmY + 8, 3, ST77XX_RED);
+
+  // Status box
+  uint16_t color =
+    status=="NORMAL" ? ST77XX_GREEN :
+    status=="WARNING" ? tft.color565(255,140,0) :
+    ST77XX_RED;
+
+  int boxX = 20, boxY = 85, boxW = 120, boxH = 18;
+  tft.fillRect(boxX, boxY, boxW, boxH, color);
+
+  tft.setTextSize(1);
+  tft.setTextColor(ST77XX_BLACK);
+
+  tft.getTextBounds(status,0,0,&x1,&y1,&w,&h);
+  tft.setCursor(boxX + (boxW - w)/2, boxY + (boxH - h)/2 + 1);
+  tft.print(status);
+
+  // Bottom panel
+  tft.fillRect(0,112,160,30,ST77XX_BLACK);
+
+  tft.setTextColor(ST77XX_WHITE);
+  tft.setCursor(10,118);
+  tft.print("Air: ");
+  tft.print(airPercent);
+  tft.print("%");
+
+  String sys = (WiFi.softAPgetStationNum() > 0) ? "Stable" : "Syncing";
+  tft.getTextBounds(sys,0,0,&x1,&y1,&w,&h);
+  tft.setCursor(160 - w - 10,130);
+  tft.print(sys);
+}
